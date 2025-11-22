@@ -270,7 +270,7 @@ telecom-sionna-multiagent/
 
 ---
 
-# 🧠 Architecture Diagram
+# Architecture Diagram
 
 User Prompt
 
