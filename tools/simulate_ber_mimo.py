@@ -3,12 +3,49 @@ import numpy as np
 import matplotlib.pyplot as plt
 from core.sionna_compat import phy_imports
 
+
+def _qam_constellation(M: int):
+    """
+    Square M-QAM constellation, Gray-like ordering not required for BER demo.
+    Normalized to unit average power.
+    Returns complex points array shape [M].
+    """
+    m_side = int(np.sqrt(M))
+    assert m_side * m_side == M, "M must be square for this helper."
+
+    re = np.arange(-(m_side-1), m_side+1, 2)
+    im = np.arange(-(m_side-1), m_side+1, 2)
+    grid = re[None, :] + 1j * im[:, None]
+    pts = grid.flatten()
+
+    # Normalize avg power to 1
+    pts = pts / np.sqrt(np.mean(np.abs(pts)**2))
+    return pts
+
+
+def _bits_to_int(bits):
+    """bits: [..., k] -> int index"""
+    out = np.zeros(bits.shape[:-1], dtype=np.int32)
+    for i in range(bits.shape[-1]):
+        out = (out << 1) | bits[..., i]
+    return out
+
+
+def _int_to_bits(idx, k):
+    """idx: [...] -> bits [..., k]"""
+    bits = np.zeros((*idx.shape, k), dtype=np.int32)
+    for i in range(k-1, -1, -1):
+        bits[..., i] = idx & 1
+        idx = idx >> 1
+    return bits
+
+
 def simulate_ber_mimo(
     modulation: str = "64qam",
     snr_db_list=None,
-    configs=None,
-    n_bits: int = 150000,
-    batch_size: int = 1000,
+    configs=None,                   # [{"nt":1,"nr":1},{"nt":4,"nr":4}]
+    n_bits: int = 30000,            # reduced for CPU safety
+    batch_size: int = 200,          # reduced for CPU safety
     out_dir: str = "outputs"
 ):
     os.makedirs(out_dir, exist_ok=True)
@@ -19,11 +56,10 @@ def simulate_ber_mimo(
 
     try:
         import tensorflow as tf
-        _, Mapper, Demapper, _, FlatFadingChannel, ebnodb2no = phy_imports()
+        _, Mapper, _, _, FlatFadingChannel, ebnodb2no = phy_imports()
     except Exception as e:
         return {"plots": [], "kpis": {}, "error": f"Sionna/TensorFlow import failed: {e}"}
 
-    # --- modulation ---
     mod = modulation.lower()
     if "qam" in mod:
         M = int(mod.replace("qam", ""))
@@ -32,65 +68,82 @@ def simulate_ber_mimo(
         return {"plots": [], "kpis": {}, "error": f"Unknown modulation: {modulation}"}
 
     mapper = Mapper(constellation_type="qam", num_bits_per_symbol=k)
-    demapper = Demapper("app", constellation_type="qam", num_bits_per_symbol=k)
+    const_pts = _qam_constellation(M)  # numpy points for hard demap
 
     all_bers = {}
 
     for cfg in configs:
         nt, nr = cfg["nt"], cfg["nr"]
         label = f"{nt}x{nr}"
-
         ch = FlatFadingChannel(num_tx_ant=nt, num_rx_ant=nr, add_awgn=True)
+
         bers = []
 
         for snr_db in snr_db_list:
             no = ebnodb2no(snr_db, k, coderate=1.0)
+
             n_err = 0
             n_tot = 0
 
-            while n_tot < n_bits:
+            # how many batches needed
+            target_bits = n_bits
+
+            while n_tot < target_bits:
+                # bits -> symbols
                 b = tf.random.uniform([batch_size, k], 0, 2, dtype=tf.int32)
-                x = mapper(b)
+                x = mapper(b)  # [B,1] complex
 
-                # Repeat symbol across nt antennas
-                x_mimo = tf.tile(tf.expand_dims(x, axis=2), [1, 1, nt])
+                # Repeat same symbol across nt TX antennas
+                x_mimo = tf.tile(tf.expand_dims(x, axis=2), [1, 1, nt])  # [B,1,nt]
 
-                # --- FLEXIBLE CHANNEL OUTPUT ---
-                try:
-                    out = ch(x_mimo, no)          # Sionna 1.x
-                except TypeError:
-                    out = ch([x_mimo, no])        # Sionna 0.x
-
+                # Channel
+                out = ch(x_mimo, no) if not isinstance(x_mimo, list) else ch([x_mimo, no])
+                # Sionna may return y only, or (y,h,...)
                 if isinstance(out, tuple):
-                    if len(out) == 1:
-                        y = out[0]
-                        h = None
-                    else:
-                        y = out[0]
-                        h = out[1]
+                    y = out[0]
+                    h = out[1] if len(out) > 1 else None
                 else:
                     y = out
                     h = None
 
-                # --- Demapper ---
-                if h is None:
-                    llr = demapper(y, no) if hasattr(demapper, "__call__") else demapper([y, no])
+                # Convert to numpy for light combining/demapping
+                y_np = y.numpy()  # [B,1,nr] complex
+                if h is not None:
+                    h_np = h.numpy()  # [B,1,nr,nt] complex
                 else:
-                    llr = demapper(y, h, no) if hasattr(demapper, "__call__") else demapper([y, h, no])
+                    # fallback: assume unit channel
+                    h_np = np.ones((batch_size, 1, nr, nt), dtype=np.complex64)
 
-                b_hat = tf.cast(llr > 0, tf.int32)
-                n_err += tf.reduce_sum(tf.cast(tf.not_equal(b, b_hat), tf.int32)).numpy()
+                # ---- MRC combining for repetition baseline ----
+                # y_hat = sum_{r,t} conj(h)*y / sum_{r,t} |h|^2
+                num = np.sum(np.conj(h_np) * y_np[..., None], axis=(2,3))   # [B,1]
+                den = np.sum(np.abs(h_np)**2, axis=(2,3)) + 1e-9           # [B,1]
+                s_hat = (num / den).reshape(-1)                            # [B]
+
+                # ---- Hard nearest-neighbor demap ----
+                # Find nearest QAM point index
+                d2 = np.abs(s_hat[:, None] - const_pts[None, :])**2        # [B,M]
+                sym_idx_hat = np.argmin(d2, axis=1)                        # [B]
+
+                # True bits indices
+                b_np = b.numpy()
+                sym_idx_true = _bits_to_int(b_np)
+
+                # Convert estimated indices back to bits
+                b_hat = _int_to_bits(sym_idx_hat, k)
+
+                n_err += np.sum(b_hat != b_np)
                 n_tot += batch_size * k
 
             bers.append(n_err / n_tot)
 
         all_bers[label] = bers
 
-    # --- Plot ---
+    # Plot
     fig = plt.figure()
     for label, bers in all_bers.items():
         plt.semilogy(snr_db_list, bers, marker="o", label=label)
-    plt.title(f"MIMO BER Comparison ({modulation.upper()} - Rayleigh)")
+    plt.title(f"MIMO BER (Hard Demap, Repetition) – {modulation.upper()}")
     plt.xlabel("SNR (dB)")
     plt.ylabel("BER")
     plt.grid(True, which="both")
@@ -106,6 +159,7 @@ def simulate_ber_mimo(
             "configs": configs,
             "snr_db": snr_db_list,
             "ber": all_bers,
-            "modulation": modulation
+            "modulation": modulation,
+            "note": "Low-memory hard demap + MRC combining (CPU-friendly)."
         }
     }
