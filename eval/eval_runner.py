@@ -1,5 +1,5 @@
 import json
-from main import TelecomMultiAgentAssistant
+from telecom-sionna-multiagent.main import TelecomMultiAgentAssistant
 
 def run_eval(path="eval/sample_tasks.json"):
     assistant = TelecomMultiAgentAssistant()
@@ -8,26 +8,32 @@ def run_eval(path="eval/sample_tasks.json"):
     correct_task = 0
     correct_tool = 0
 
+    tool_map = {
+        "constellation": "simulate_constellation",
+        "ber": "simulate_ber",
+        "mimo_comparison": "simulate_ber_mimo",
+        "radiomap": "simulate_radio_map",
+        "multi_radio_map": "simulate_multi_radio_map"
+    }
+
     for t in data:
         prompt = t["prompt"]
+
+        # 1. Interpret task type
         task = assistant.interpreter.run(prompt)
+
+        # 2. Extract parameters
         task = assistant.extractor.run(task)
 
-        exp_type = t["expected_task_type"]
-        exp_tool = t["expected_tool"]
+        expected_task = t["expected_task_type"]
+        expected_tool = t["expected_tool"]
 
-        if task.task_type == exp_type:
+        # Accuracy counts
+        if task.task_type == expected_task:
             correct_task += 1
 
-        tool_name = {
-            "constellation": "simulate_constellation",
-            "ber": "simulate_ber",
-            "mimo_comparison": "simulate_ber_mimo",
-            "radiomap": "simulate_radio_map",
-            "multi_radio_map": "simulate_multi_radio_map",
-        }.get(task.task_type)
-
-        if tool_name == exp_tool:
+        actual_tool = tool_map.get(task.task_type)
+        if actual_tool == expected_tool:
             correct_tool += 1
 
     print(f"Task-type accuracy: {correct_task}/{len(data)}")
