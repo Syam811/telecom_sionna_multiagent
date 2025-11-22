@@ -1,0 +1,17 @@
+[
+  {
+    "prompt": "Show constellation for 16-QAM at SNR 15 dB",
+    "expected_task_type": "constellation",
+    "expected_tool": "simulate_constellation"
+  },
+  {
+    "prompt": "Compare BER of QPSK in AWGN vs Rayleigh from -5 to 15 dB",
+    "expected_task_type": "ber",
+    "expected_tool": "simulate_ber"
+  },
+  {
+    "prompt": "Compare BER for 1x1 vs 4x4 MIMO for 64-QAM",
+    "expected_task_type": "mimo_comparison",
+    "expected_tool": "simulate_ber_mimo"
+  }
+]
