@@ -1,3 +1,6 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+
 import json
 from telecom_sionna_multiagent.main import TelecomMultiAgentAssistant
 
