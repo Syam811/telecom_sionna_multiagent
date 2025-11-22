@@ -16,7 +16,7 @@ class TelecomMultiAgentAssistant:
 
         self.interpreter = InterpreterAgent(self.decomposer)
         self.extractor = ParameterExtractorAgent(self.decomposer)
-        self.simulator = SimulationAgent(self.mcp)
+        self.simulator = SimulationAgent(use_mcp=False)
         self.summarizer = SummaryAgent()
 
     def chat(self, prompt: str):
