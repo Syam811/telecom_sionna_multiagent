@@ -14,45 +14,46 @@ def simulate_constellation(
 
     try:
         import tensorflow as tf
-        Constellation, Mapper, _, AWGN, _, _ = phy_imports()
+        _, Mapper, _, AWGN, _, _ = phy_imports()
     except Exception as e:
         return {"plots": [], "kpis": {}, "error": f"Sionna/TensorFlow import failed: {e}"}
 
-    # --------------------------
-    # FIX: Sionna 1.x API
-    # --------------------------
     mod = modulation.lower()
+
+    # ---- bits per symbol ----
     if mod == "qpsk":
-        constellation = Constellation.create("qam", 4)
+        k = 2                      # log2(4)
+        M = 4
     elif "qam" in mod:
-        m = int(mod.replace("qam", ""))
-        constellation = Constellation.create("qam", m)
+        M = int(mod.replace("qam", ""))
+        k = int(np.log2(M))
     else:
         return {"plots": [], "kpis": {}, "error": f"Unknown modulation: {modulation}"}
 
-    mapper = Mapper(constellation)
+    # Sionna 1.x way: no Constellation object needed
+    mapper = Mapper(constellation_type="qam", num_bits_per_symbol=k)
     awgn = AWGN()
 
-    n_bits_per_sym = int(np.log2(constellation.num_points))
-
-    bits = tf.random.uniform(
-        [n_symbols, n_bits_per_sym], 0, 2, dtype=tf.int32
-    )
-
-    # modulate
+    # Random bits -> symbols
+    bits = tf.random.uniform([n_symbols, k], 0, 2, dtype=tf.int32)
     x = mapper(bits)
 
-    # add noise
-    snr_linear = 10 ** (snr_db / 10)
-    noise_var = 1.0 / snr_linear
-    y = awgn([x, tf.constant(noise_var, tf.float32)])
+    # Noise variance
+    snr_lin = 10 ** (snr_db / 10)
+    noise_var = 1.0 / snr_lin
+
+    #  AWGN call differs between 1.x and 0.x -> support both
+    try:
+        y = awgn(x, tf.constant(noise_var, tf.float32))     # Sionna 1.x style :contentReference[oaicite:1]{index=1}
+    except TypeError:
+        y = awgn([x, tf.constant(noise_var, tf.float32)])   # Sionna 0.x fallback
 
     y_np = y.numpy().reshape(-1)
 
-    # plot constellation
+    # Plot
     fig = plt.figure(figsize=(5, 5))
     plt.scatter(np.real(y_np), np.imag(y_np), s=6, alpha=0.6)
-    plt.title(f"Constellation: {modulation.upper()} @ {snr_db} dB")
+    plt.title(f"{modulation.upper()} Constellation @ {snr_db} dB")
     plt.xlabel("In-phase")
     plt.ylabel("Quadrature")
     plt.grid(True)
