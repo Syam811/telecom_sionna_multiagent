@@ -189,4 +189,42 @@ Tool-choice accuracy: 16/16
 
 # Repository Structure
 
+telecom-sionna-multiagent/
+│
+├── agents/
+│   ├── interpreter_agent.py
+│   ├── parameter_extractor_agent.py
+│   ├── simulation_agent.py
+│   └── summary_agent.py
+│
+├── core/
+│   ├── local_tools.py               # optional older tools
+│   ├── local_tools_unused.py        # unused (safe to delete)
+│   ├── logger.py                    # logging helper
+│   ├── mcp_client.py                # MCP server client wrapper
+│   ├── schemas.py                   # TaskSpec + schema definitions
+│   ├── session_store.py             # InMemorySessionService
+│   ├── sionna_compat.py             # optional compatibility utilities
+│   └── task_decomposer.py           # natural-language → task type logic
+│
+├── eval/
+│   ├── eval_runner.py               # automated evaluation script
+│   └── sample_tasks.json            # 16 synthetic tasks (trivial/simple/medium)
+│
+├── tools/                           # MCP simulation tools
+│   ├── simulate_ber.py
+│   ├── simulate_ber_mimo.py
+│   ├── simulate_constellation.py
+│   ├── simulate_multi_radio_map.py
+│   └── simulate_radio_map.py
+│
+├── ui/
+│   ├── gradio_app.py                # web UI (optional)
+│   ├── README.md                    # UI instructions only
+│   ├── __init__.py
+│   └── gradio_app.pdf               # UI screenshot/document
+│
+├── main.py                          # Entry point for core agent pipeline
+├── requirements.txt
+└── README.md                        # Main project description, architecture, evaluation
 
