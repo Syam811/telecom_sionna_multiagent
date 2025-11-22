@@ -180,9 +180,16 @@ Custom tools built under `tools/`:
    Extracted params: {'tx_positions': [[0.0, 0.0, 10.0], [80.0, 0.0, 10.0]], 'combine_mode': 'sum'}
  
 === Final Scores ===
+
 Task-type accuracy : 16/16
+
 Tool-choice accuracy: 16/16
- 
+
+Task Type Accuracy : 0.93
+
+Tool Choice Accuracy: 0.93
+
+
 (.venv) PS C:\Users\evemsya\telecom_sionna_multiagent>
 
 ---
