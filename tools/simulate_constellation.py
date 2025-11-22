@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from core.sionna_compat import phy_imports
 
+
 def simulate_constellation(
     modulation: str = "16qam",
     snr_db: float = 15.0,
@@ -17,12 +18,15 @@ def simulate_constellation(
     except Exception as e:
         return {"plots": [], "kpis": {}, "error": f"Sionna/TensorFlow import failed: {e}"}
 
+    # --------------------------
+    # FIX: Sionna 1.x API
+    # --------------------------
     mod = modulation.lower()
     if mod == "qpsk":
-        constellation = Constellation("qam", 4)
+        constellation = Constellation.create("qam", 4)
     elif "qam" in mod:
         m = int(mod.replace("qam", ""))
-        constellation = Constellation("qam", m)
+        constellation = Constellation.create("qam", m)
     else:
         return {"plots": [], "kpis": {}, "error": f"Unknown modulation: {modulation}"}
 
@@ -30,18 +34,25 @@ def simulate_constellation(
     awgn = AWGN()
 
     n_bits_per_sym = int(np.log2(constellation.num_points))
-    bits = tf.random.uniform([n_symbols, n_bits_per_sym], 0, 2, dtype=tf.int32)
+
+    bits = tf.random.uniform(
+        [n_symbols, n_bits_per_sym], 0, 2, dtype=tf.int32
+    )
+
+    # modulate
     x = mapper(bits)
 
-    snr_lin = 10 ** (snr_db / 10)
-    noise_var = 1.0 / snr_lin
+    # add noise
+    snr_linear = 10 ** (snr_db / 10)
+    noise_var = 1.0 / snr_linear
     y = awgn([x, tf.constant(noise_var, tf.float32)])
 
     y_np = y.numpy().reshape(-1)
 
+    # plot constellation
     fig = plt.figure(figsize=(5, 5))
     plt.scatter(np.real(y_np), np.imag(y_np), s=6, alpha=0.6)
-    plt.title(f"{modulation.upper()} @ SNR={snr_db} dB")
+    plt.title(f"Constellation: {modulation.upper()} @ {snr_db} dB")
     plt.xlabel("In-phase")
     plt.ylabel("Quadrature")
     plt.grid(True)
