@@ -43,4 +43,4 @@ if __name__ == "__main__":
         if prompt.strip().lower() in {"exit", "quit"}:
             break
         summary, payload = assistant.chat(prompt)
-        print("\nAssistant:\n", summary)
+        print("\nAssistant :\n", summary)
